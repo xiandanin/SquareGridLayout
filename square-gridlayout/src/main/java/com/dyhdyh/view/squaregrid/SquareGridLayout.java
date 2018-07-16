@@ -2,10 +2,11 @@ package com.dyhdyh.view.squaregrid;
 
 import android.content.Context;
 import android.content.res.TypedArray;
+import android.support.v7.widget.RecyclerView;
 import android.util.AttributeSet;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ImageView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -14,7 +15,7 @@ import java.util.List;
  * @author dengyuhan
  *         created 2018/7/13 20:27
  */
-public class SquareGridLayout<T> extends ViewGroup {
+public class SquareGridLayout extends ViewGroup {
     public final static int STYLE_GRID = 0;     // 宫格布局
     public final static int STYLE_FILL = 1;     // 全填充布局
     ///////////////////////////////////////////////////////////////////////////
@@ -24,6 +25,8 @@ public class SquareGridLayout<T> extends ViewGroup {
     public final static int TOPCOLSPAN = 2;     // 首行跨列
     public final static int BOTTOMCOLSPAN = 3;  // 末行跨列
     public final static int LEFTROWSPAN = 4;    // 首列跨行
+    public final static int WEIBO = 5;     // 微博
+    private boolean mSingleImgFill;
 
     private int mRowCount;                      // 行数
     private int mColumnCount;                   // 列数
@@ -35,11 +38,10 @@ public class SquareGridLayout<T> extends ViewGroup {
     private int mGridSize;                      // 宫格大小,即图片大小
     private int mSpanType;                      // 跨行跨列的类型
 
-    private List<ImageView> mImageViewList = new ArrayList<>();
-    private List<T> mImgDataList;
+    private List<ViewHolder> mViewHolders = new ArrayList<>();
 
-    private ItemImageClickListener<T> mItemImageClickListener;
-    private ItemImageLongClickListener<T> mItemImageLongClickListener;
+    private OnItemClickListener mOnItemClickListener;
+    private OnItemLongClickListener mOnItemLongClickListener;
 
     private Adapter mAdapter;
 
@@ -49,30 +51,53 @@ public class SquareGridLayout<T> extends ViewGroup {
 
     public SquareGridLayout(Context context, AttributeSet attrs) {
         super(context, attrs);
-        TypedArray typedArray = context.obtainStyledAttributes(attrs, R.styleable.NineGridImageView);
-        this.mGap = (int) typedArray.getDimension(R.styleable.NineGridImageView_imgGap, 0);
-        this.mSingleImgSize = typedArray.getDimensionPixelSize(R.styleable.NineGridImageView_singleImgSize, -1);
-        this.mShowStyle = typedArray.getInt(R.styleable.NineGridImageView_showStyle, STYLE_GRID);
-        this.mMaxSize = typedArray.getInt(R.styleable.NineGridImageView_maxSize, 9);
+        TypedArray typedArray = context.obtainStyledAttributes(attrs, R.styleable.SquareGridLayout);
+        this.mGap = (int) typedArray.getDimension(R.styleable.SquareGridLayout_imgGap, 0);
+        this.mSingleImgSize = typedArray.getDimensionPixelSize(R.styleable.SquareGridLayout_singleImgSize, -1);
+        this.mSingleImgFill = typedArray.getBoolean(R.styleable.SquareGridLayout_singleImgFill, true);
+        this.mShowStyle = typedArray.getInt(R.styleable.SquareGridLayout_showStyle, STYLE_GRID);
+        this.mMaxSize = typedArray.getInt(R.styleable.SquareGridLayout_maxSize, 9);
         typedArray.recycle();
     }
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-        int width = MeasureSpec.getSize(widthMeasureSpec);
-        int height = MeasureSpec.getSize(heightMeasureSpec);
-        int totalWidth = width - getPaddingLeft() - getPaddingRight();
-        if (mImgDataList != null && mImgDataList.size() > 0) {
-            if (mImgDataList.size() == 1 && mSingleImgSize != -1) {
-                mGridSize = mSingleImgSize > totalWidth ? totalWidth : mSingleImgSize;
-            } else {
-                mImageViewList.get(0).setScaleType(ImageView.ScaleType.CENTER_CROP);
-                mGridSize = (totalWidth - mGap * (mColumnCount - 1)) / mColumnCount;
+
+        if (mAdapter != null) {
+            int width = MeasureSpec.getSize(widthMeasureSpec);
+            int height = MeasureSpec.getSize(heightMeasureSpec);
+            int totalWidth = width - getPaddingLeft() - getPaddingRight();
+
+            final int itemCount = mAdapter.getItemCount();
+            if (itemCount > 0) {
+                int childWidth = 0;
+                int childHeight = 0;
+
+                if (itemCount == 1) {
+                    if (!mSingleImgFill && mSingleImgSize != -1) {
+                        mGridSize = mSingleImgSize > totalWidth ? totalWidth : mSingleImgSize;
+                    } else {
+                        mGridSize = totalWidth;
+                    }
+                } else {
+                    mGridSize = (totalWidth - mGap * (mColumnCount - 1)) / mColumnCount;
+                }
+                height = mGridSize * mRowCount + mGap * (mRowCount - 1) + getPaddingTop() + getPaddingBottom();
+
+                //设置子View尺寸
+                final int childCount = getChildCount();
+                for (int i = 0; i < childCount; i++) {
+                    View childView = getChildAt(i);
+                    int childWidthMeasureMode = MeasureSpec.EXACTLY;
+                    int childHeightMeasureMode = MeasureSpec.EXACTLY;
+                    int childWidthMeasureSpec = MeasureSpec.makeMeasureSpec(mGridSize, childWidthMeasureMode);
+                    int childHeightMeasureSpec = MeasureSpec.makeMeasureSpec(mGridSize, childHeightMeasureMode);
+                    childView.measure(childWidthMeasureSpec, childHeightMeasureSpec);
+                }
             }
-            height = mGridSize * mRowCount + mGap * (mRowCount - 1) + getPaddingTop() + getPaddingBottom();
+            setMeasuredDimension(width, height);
         }
-        setMeasuredDimension(width, height);
     }
 
     @Override
@@ -84,29 +109,35 @@ public class SquareGridLayout<T> extends ViewGroup {
      * 根据照片数量和span类型来对子视图进行动态排版布局
      */
     private void layoutChildrenView() {
-        if (mImgDataList == null) return;
-        int showChildrenCount = getNeedShowCount(mImgDataList.size());
-        //对不跨行不跨列的进行排版布局,单张或者2张默认进行普通排版
-        if (mSpanType == NOSPAN || showChildrenCount <= 2) {
-            layoutForNoSpanChildrenView(showChildrenCount);
-            return;
-        }
-        switch (showChildrenCount) {
-            case 3:
-                layoutForThreeChildrenView(showChildrenCount);
-                break;
-            case 4:
-                layoutForFourChildrenView(showChildrenCount);
-                break;
-            case 5:
-                layoutForFiveChildrenView(showChildrenCount);
-                break;
-            case 6:
-                layoutForSixChildrenView(showChildrenCount);
-                break;
-            default:
+        if (mAdapter != null) {
+            final int itemCount = mAdapter.getItemCount();
+
+            int showChildrenCount = getNeedShowCount(itemCount);
+            //对不跨行不跨列的进行排版布局,单张或者2张默认进行普通排版
+            if (mSpanType == NOSPAN || showChildrenCount <= 2) {
                 layoutForNoSpanChildrenView(showChildrenCount);
-                break;
+                return;
+            } else if (mSpanType == WEIBO) {
+                layoutForWeiBoChildrenView(showChildrenCount);
+                return;
+            }
+            switch (showChildrenCount) {
+                case 3:
+                    layoutForThreeChildrenView(showChildrenCount);
+                    break;
+                case 4:
+                    layoutForFourChildrenView(showChildrenCount);
+                    break;
+                case 5:
+                    layoutForFiveChildrenView(showChildrenCount);
+                    break;
+                case 6:
+                    layoutForSixChildrenView(showChildrenCount);
+                    break;
+                default:
+                    layoutForNoSpanChildrenView(showChildrenCount);
+                    break;
+            }
         }
     }
 
@@ -114,23 +145,54 @@ public class SquareGridLayout<T> extends ViewGroup {
         if (childrenCount <= 0) return;
         int row, column, left, top, right, bottom;
         for (int i = 0; i < childrenCount; i++) {
-            ImageView childrenView = (ImageView) getChildAt(i);
+            final ViewHolder holder = mViewHolders.get(i);
             row = i / mColumnCount;
             column = i % mColumnCount;
             left = (mGridSize + mGap) * column + getPaddingLeft();
             top = (mGridSize + mGap) * row + getPaddingTop();
             right = left + mGridSize;
             bottom = top + mGridSize;
-            childrenView.layout(left, top, right, bottom);
+            holder.itemView.layout(left, top, right, bottom);
 
-            callAdapterBindView(childrenView, i);
+            //callAdapterBindView(holder, i);
+        }
+    }
+
+
+    private void layoutForWeiBoChildrenView(int childrenCount) {
+        if (childrenCount == 4) {
+            int row, column, left, top, right, bottom;
+            for (int i = 0; i < childrenCount; i++) {
+                final ViewHolder holder = mViewHolders.get(i);
+                row = i / mColumnCount;
+                column = i % mColumnCount;
+
+                if (i == 2 || i == 3) {
+                    row = 1;
+                    column = 0;
+                    if (i == 3) {
+                        column = 1;
+                    }
+                }
+
+                left = (mGridSize + mGap) * column + getPaddingLeft();
+                top = (mGridSize + mGap) * row + getPaddingTop();
+                right = left + mGridSize;
+                bottom = top + mGridSize;
+
+                holder.itemView.layout(left, top, right, bottom);
+
+                //callAdapterBindView(holder, i);
+            }
+        } else {
+            layoutForNoSpanChildrenView(childrenCount);
         }
     }
 
     private void layoutForThreeChildrenView(int childrenCount) {
         int left, top, right, bottom;
         for (int i = 0; i < childrenCount; i++) {
-            ImageView childrenView = (ImageView) getChildAt(i);
+            final ViewHolder holder = mViewHolders.get(i);
             switch (mSpanType) {
                 case TOPCOLSPAN:    //2行2列,首行跨列
                     if (i == 0) {
@@ -149,7 +211,7 @@ public class SquareGridLayout<T> extends ViewGroup {
                         right = left + mGridSize;
                         bottom = top + mGridSize;
                     }
-                    childrenView.layout(left, top, right, bottom);
+                    holder.itemView.layout(left, top, right, bottom);
                     break;
                 case BOTTOMCOLSPAN: //2行2列,末行跨列
                     if (i == 0) {
@@ -168,7 +230,7 @@ public class SquareGridLayout<T> extends ViewGroup {
                         right = left + mGridSize * 2 + mGap;
                         bottom = top + mGridSize;
                     }
-                    childrenView.layout(left, top, right, bottom);
+                    holder.itemView.layout(left, top, right, bottom);
                     break;
                 case LEFTROWSPAN:   //2行2列,首列跨行
                     if (i == 0) {
@@ -187,20 +249,20 @@ public class SquareGridLayout<T> extends ViewGroup {
                         right = left + mGridSize;
                         bottom = top + mGridSize;
                     }
-                    childrenView.layout(left, top, right, bottom);
+                    holder.itemView.layout(left, top, right, bottom);
                     break;
                 default:
                     break;
             }
 
-            callAdapterBindView(childrenView, i);
+            //callAdapterBindView(holder, i);
         }
     }
 
     private void layoutForFourChildrenView(int childrenCount) {
         int left, top, right, bottom;
         for (int i = 0; i < childrenCount; i++) {
-            ImageView childrenView = (ImageView) getChildAt(i);
+            final ViewHolder holder = mViewHolders.get(i);
             switch (mSpanType) {
                 case TOPCOLSPAN:    //3行3列,首行跨2行3列
                     if (i == 0) {
@@ -224,7 +286,7 @@ public class SquareGridLayout<T> extends ViewGroup {
                         right = left + mGridSize;
                         bottom = top + mGridSize;
                     }
-                    childrenView.layout(left, top, right, bottom);
+                    holder.itemView.layout(left, top, right, bottom);
                     break;
                 case BOTTOMCOLSPAN: //3行3列,末行跨2行3列
                     if (i == 0) {
@@ -248,7 +310,7 @@ public class SquareGridLayout<T> extends ViewGroup {
                         right = left + mGridSize * 3 + mGap * 2;
                         bottom = top + mGridSize * 2 + mGap;
                     }
-                    childrenView.layout(left, top, right, bottom);
+                    holder.itemView.layout(left, top, right, bottom);
                     break;
                 case LEFTROWSPAN:   //3行3列,首列跨3行2列
                     if (i == 0) {
@@ -272,19 +334,19 @@ public class SquareGridLayout<T> extends ViewGroup {
                         right = left + mGridSize;
                         bottom = top + mGridSize;
                     }
-                    childrenView.layout(left, top, right, bottom);
+                    holder.itemView.layout(left, top, right, bottom);
                     break;
                 default:
                     break;
             }
-            callAdapterBindView(childrenView, i);
+            //callAdapterBindView(holder, i);
         }
     }
 
     private void layoutForFiveChildrenView(int childrenCount) {
         int left, top, right, bottom;
         for (int i = 0; i < childrenCount; i++) {
-            ImageView childrenView = (ImageView) getChildAt(i);
+            final ViewHolder holder = mViewHolders.get(i);
             switch (mSpanType) {
                 case TOPCOLSPAN:    //3行3列,首行跨2行,2列跨3列
                     if (i == 0) {
@@ -313,7 +375,7 @@ public class SquareGridLayout<T> extends ViewGroup {
                         right = left + mGridSize;
                         bottom = top + mGridSize;
                     }
-                    childrenView.layout(left, top, right, bottom);
+                    holder.itemView.layout(left, top, right, bottom);
                     break;
                 case BOTTOMCOLSPAN: //3行3列,末行跨2行,2列跨3列
                     if (i == 0) {
@@ -342,7 +404,7 @@ public class SquareGridLayout<T> extends ViewGroup {
                         right = left + (mGridSize * 3 + mGap) / 2;
                         bottom = top + mGridSize * 2 + mGap;
                     }
-                    childrenView.layout(left, top, right, bottom);
+                    holder.itemView.layout(left, top, right, bottom);
                     break;
                 case LEFTROWSPAN:   //3行3列,2行跨3行，1列
                     if (i == 0) {
@@ -371,19 +433,19 @@ public class SquareGridLayout<T> extends ViewGroup {
                         right = left + mGridSize;
                         bottom = top + mGridSize;
                     }
-                    childrenView.layout(left, top, right, bottom);
+                    holder.itemView.layout(left, top, right, bottom);
                     break;
                 default:
                     break;
             }
-            callAdapterBindView(childrenView, i);
+            //callAdapterBindView(holder, i);
         }
     }
 
     private void layoutForSixChildrenView(int childrenCount) {
         int left, top, right, bottom;
         for (int i = 0; i < childrenCount; i++) {
-            ImageView childrenView = (ImageView) getChildAt(i);
+            final ViewHolder holder = mViewHolders.get(i);
             switch (mSpanType) {
                 case TOPCOLSPAN:    //3行3列,第一张跨2行2列
                     if (i == 0) {
@@ -417,7 +479,7 @@ public class SquareGridLayout<T> extends ViewGroup {
                         right = left + mGridSize;
                         bottom = top + mGridSize;
                     }
-                    childrenView.layout(left, top, right, bottom);
+                    holder.itemView.layout(left, top, right, bottom);
                     break;
                 case BOTTOMCOLSPAN: //3行3列,第4张跨2行2列
                     if (i == 0) {
@@ -451,7 +513,7 @@ public class SquareGridLayout<T> extends ViewGroup {
                         right = left + mGridSize;
                         bottom = top + mGridSize;
                     }
-                    childrenView.layout(left, top, right, bottom);
+                    holder.itemView.layout(left, top, right, bottom);
                     break;
                 case LEFTROWSPAN:   //3行3列,第2张跨2行2列
                     if (i == 0) {
@@ -485,12 +547,12 @@ public class SquareGridLayout<T> extends ViewGroup {
                         right = left + mGridSize;
                         bottom = top + mGridSize;
                     }
-                    childrenView.layout(left, top, right, bottom);
+                    holder.itemView.layout(left, top, right, bottom);
                     break;
                 default:
                     break;
             }
-            callAdapterBindView(childrenView, i);
+            //callAdapterBindView(holder, i);
         }
     }
 
@@ -500,7 +562,7 @@ public class SquareGridLayout<T> extends ViewGroup {
      * @param imagesSize 图片数量
      * @param gridParam  单元格的行数和列数
      */
-    private void generatUnitRowAndColumnForSpanType(int imagesSize, int[] gridParam) {
+    private void generateUnitRowAndColumnForSpanType(int imagesSize, int[] gridParam) {
         if (imagesSize <= 2) {
             gridParam[0] = 1;
             gridParam[1] = imagesSize;
@@ -538,62 +600,6 @@ public class SquareGridLayout<T> extends ViewGroup {
         }
     }
 
-    public void setImagesData(List<T> lists) {
-        setImagesData(lists, NOSPAN);
-    }
-
-    /**
-     * 设置图片数据
-     *
-     * @param lists    图片数据集合
-     * @param spanType 跨行跨列排版类型
-     */
-    public void setImagesData(List<T> lists, int spanType) {
-        if (lists == null || lists.isEmpty()) {
-            this.setVisibility(GONE);
-            return;
-        } else {
-            this.setVisibility(VISIBLE);
-        }
-        this.mSpanType = spanType;
-        int newShowCount = getNeedShowCount(lists.size());
-
-        int[] gridParam = calculateGridParam(newShowCount, mShowStyle);
-        mRowCount = gridParam[0];
-        mColumnCount = gridParam[1];
-        if (mImgDataList == null) {
-            int i = 0;
-            while (i < newShowCount) {
-                View itemView = null;
-                if (mAdapter != null) {
-                    itemView = mAdapter.onCreateView(this, i);
-                }
-                if (itemView == null) {
-                    return;
-                }
-                addView(itemView, generateDefaultLayoutParams());
-                i++;
-            }
-        } else {
-            int oldShowCount = getNeedShowCount(mImgDataList.size());
-            if (oldShowCount > newShowCount) {
-                removeViews(newShowCount, oldShowCount - newShowCount);
-            } else if (oldShowCount < newShowCount) {
-                for (int i = oldShowCount; i < newShowCount; i++) {
-                    View itemView = null;
-                    if (mAdapter != null) {
-                        itemView = mAdapter.onCreateView(this, i);
-                    }
-                    if (itemView == null) {
-                        return;
-                    }
-                    addView(itemView, generateDefaultLayoutParams());
-                }
-            }
-        }
-        mImgDataList = lists;
-        requestLayout();
-    }
 
     private int getNeedShowCount(int size) {
         if (mMaxSize > 0 && size > mMaxSize) {
@@ -603,9 +609,24 @@ public class SquareGridLayout<T> extends ViewGroup {
         }
     }
 
-    private void callAdapterBindView(View itemView, int position) {
-        if (mAdapter != null) {
-            mAdapter.onBindView(itemView, position);
+    private void callAdapterBindView(Adapter adapter, final ViewHolder holder, final int position) {
+        adapter.onBindViewHolder(holder, position);
+
+        if (mOnItemClickListener != null) {
+            holder.itemView.setOnClickListener(new OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    mOnItemClickListener.onItemClick(mAdapter, holder, position);
+                }
+            });
+        }
+        if (mOnItemLongClickListener != null) {
+            holder.itemView.setOnLongClickListener(new OnLongClickListener() {
+                @Override
+                public boolean onLongClick(View v) {
+                    return mOnItemLongClickListener.onItemClick(mAdapter, holder, position);
+                }
+            });
         }
     }
 
@@ -620,7 +641,7 @@ public class SquareGridLayout<T> extends ViewGroup {
         int[] gridParam = new int[2];
         switch (showStyle) {
             case STYLE_FILL:
-                generatUnitRowAndColumnForSpanType(imagesSize, gridParam);
+                generateUnitRowAndColumnForSpanType(imagesSize, gridParam);
                 break;
             default:
             case STYLE_GRID:
@@ -635,8 +656,60 @@ public class SquareGridLayout<T> extends ViewGroup {
      *
      * @param adapter 适配器
      */
-    public void setAdapter(Adapter adapter) {
-        mAdapter = adapter;
+    public void setAdapter(Adapter adapter, int spanType) {
+        this.mSpanType = spanType;
+        applyAdapter(adapter);
+    }
+
+
+    public void setAdapter(RecyclerView.Adapter adapter, int spanType) {
+        this.setAdapter(new SquareGridRecyclerAdapter(adapter), spanType);
+    }
+
+    private void applyAdapter(Adapter adapter) {
+        int newShowCount = getNeedShowCount(adapter.getItemCount());
+
+        int[] gridParam = calculateGridParam(newShowCount, mShowStyle);
+        mRowCount = gridParam[0];
+        mColumnCount = gridParam[1];
+        if (mAdapter == null) {
+            int i = 0;
+            while (i < newShowCount) {
+                ViewHolder holder = adapter.onCreateViewHolder(this, i);
+                if (holder == null) {
+                    return;
+                }
+                mViewHolders.add(holder);
+                addView(holder.itemView, generateDefaultLayoutParams());
+                callAdapterBindView(adapter, holder, i);
+                i++;
+            }
+        } else {
+            int oldShowCount = getNeedShowCount(mAdapter.getItemCount());
+            if (oldShowCount > newShowCount) {
+                int removeCount = oldShowCount - newShowCount;
+                removeViews(newShowCount, removeCount);
+
+                List<ViewHolder> tempHolders = new ArrayList<>();
+                for (int i = newShowCount; i < removeCount; i++) {
+                    tempHolders.add(mViewHolders.get(i));
+                }
+                mViewHolders.removeAll(tempHolders);
+
+            } else if (oldShowCount < newShowCount) {
+                for (int i = oldShowCount; i < newShowCount; i++) {
+                    ViewHolder holder = adapter.onCreateViewHolder(this, i);
+                    if (holder == null) {
+                        return;
+                    }
+                    mViewHolders.add(holder);
+                    addView(holder.itemView, generateDefaultLayoutParams());
+                    callAdapterBindView(adapter, holder, i);
+                }
+            }
+        }
+        this.mAdapter = adapter;
+        //requestLayout();
     }
 
     /**
@@ -675,27 +748,48 @@ public class SquareGridLayout<T> extends ViewGroup {
         mMaxSize = maxSize;
     }
 
-    public void setItemImageClickListener(ItemImageClickListener<T> itemImageViewClickListener) {
-        mItemImageClickListener = itemImageViewClickListener;
+    public void setOnItemClickListener(OnItemClickListener listener) {
+        this.mOnItemClickListener = listener;
     }
 
-    public void setItemImageLongClickListener(ItemImageLongClickListener<T> itemImageViewLongClickListener) {
-        mItemImageLongClickListener = itemImageViewLongClickListener;
+    public void setOnItemLongClickListener(OnItemLongClickListener listener) {
+        this.mOnItemLongClickListener = listener;
     }
 
+    public static abstract class Adapter<VH extends ViewHolder> {
 
-    public static abstract class Adapter {
+        public abstract VH onCreateViewHolder(ViewGroup parent, int position);
 
-        public abstract View onCreateView(ViewGroup parent, int position);
-
-        public void onBindView(View itemView, int position) {
-
-        }
-
-        public int getItemViewType(int position) {
-            return 0;
-        }
+        public abstract void onBindViewHolder(VH holder, int position);
 
         public abstract int getItemCount();
+
+    }
+
+    public static class ViewHolder {
+
+        public final View itemView;
+
+        public ViewHolder(View itemView) {
+            if (itemView == null) {
+                throw new IllegalArgumentException("itemView may not be null");
+            }
+            this.itemView = itemView;
+        }
+
+
+        public ViewHolder(ViewGroup parent, int layoutId) {
+            this.itemView = LayoutInflater.from(parent.getContext()).inflate(layoutId, parent, false);
+        }
+
+    }
+
+
+    public interface OnItemClickListener {
+        void onItemClick(Adapter<?> adapter, ViewHolder holder, int position);
+    }
+
+    public interface OnItemLongClickListener {
+        boolean onItemClick(Adapter<?> adapter, ViewHolder holder, int position);
     }
 }

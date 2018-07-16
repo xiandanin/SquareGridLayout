@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <declare-styleable name="NineGridImageView">
+    <declare-styleable name="SquareGridLayout">
+        <attr format="boolean" name="singleImgFill"/>
         <attr format="dimension" name="singleImgSize"/>
         <attr format="dimension" name="imgGap"/>
         <attr format="integer" name="maxSize"/>
