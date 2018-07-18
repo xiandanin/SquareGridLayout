@@ -31,5 +31,6 @@ public class MainActivity extends AppCompatActivity {
             data.add("ii");
         }
         layout.setAdapter(new TestAdapter(data), SquareGridLayout.WEIBO);
+        layout.notifyDataSetChanged();
     }
 }

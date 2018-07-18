@@ -71,8 +71,6 @@ public class SquareGridLayout extends ViewGroup {
 
             final int itemCount = mAdapter.getItemCount();
             if (itemCount > 0) {
-                int childWidth = 0;
-                int childHeight = 0;
 
                 if (itemCount == 1) {
                     if (!mSingleImgFill && mSingleImgSize != -1) {
@@ -85,14 +83,27 @@ public class SquareGridLayout extends ViewGroup {
                 }
                 height = mGridSize * mRowCount + mGap * (mRowCount - 1) + getPaddingTop() + getPaddingBottom();
 
+                int childWidth = mGridSize;
+                int childHeight = mGridSize;
                 //设置子View尺寸
                 final int childCount = getChildCount();
                 for (int i = 0; i < childCount; i++) {
                     View childView = getChildAt(i);
+                    if (childCount == 1) {
+                        final LayoutParams childParams = childView.getLayoutParams();
+                        if (childParams.width > 0) {
+                            childWidth = childParams.width;
+                            width = childWidth;
+                        }
+                        if (childParams.height > 0) {
+                            childHeight = childParams.height;
+                            height = childHeight;
+                        }
+                    }
                     int childWidthMeasureMode = MeasureSpec.EXACTLY;
                     int childHeightMeasureMode = MeasureSpec.EXACTLY;
-                    int childWidthMeasureSpec = MeasureSpec.makeMeasureSpec(mGridSize, childWidthMeasureMode);
-                    int childHeightMeasureSpec = MeasureSpec.makeMeasureSpec(mGridSize, childHeightMeasureMode);
+                    int childWidthMeasureSpec = MeasureSpec.makeMeasureSpec(childWidth, childWidthMeasureMode);
+                    int childHeightMeasureSpec = MeasureSpec.makeMeasureSpec(childHeight, childHeightMeasureMode);
                     childView.measure(childWidthMeasureSpec, childHeightMeasureSpec);
                 }
             }
@@ -146,12 +157,19 @@ public class SquareGridLayout extends ViewGroup {
         int row, column, left, top, right, bottom;
         for (int i = 0; i < childrenCount; i++) {
             final ViewHolder holder = mViewHolders.get(i);
-            row = i / mColumnCount;
-            column = i % mColumnCount;
-            left = (mGridSize + mGap) * column + getPaddingLeft();
-            top = (mGridSize + mGap) * row + getPaddingTop();
-            right = left + mGridSize;
-            bottom = top + mGridSize;
+            if (childrenCount == 1) {
+                left = getPaddingLeft();
+                top = getPaddingTop();
+                right = getMeasuredWidth() - getPaddingRight();
+                bottom = getMeasuredHeight() - getPaddingBottom();
+            } else {
+                row = i / mColumnCount;
+                column = i % mColumnCount;
+                left = (mGridSize + mGap) * column + getPaddingLeft();
+                top = (mGridSize + mGap) * row + getPaddingTop();
+                right = left + mGridSize;
+                bottom = top + mGridSize;
+            }
             holder.itemView.layout(left, top, right, bottom);
 
             //callAdapterBindView(holder, i);
@@ -609,26 +627,6 @@ public class SquareGridLayout extends ViewGroup {
         }
     }
 
-    private void callAdapterBindView(Adapter adapter, final ViewHolder holder, final int position) {
-        adapter.onBindViewHolder(holder, position);
-
-        if (mOnItemClickListener != null) {
-            holder.itemView.setOnClickListener(new OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    mOnItemClickListener.onItemClick(mAdapter, holder, position);
-                }
-            });
-        }
-        if (mOnItemLongClickListener != null) {
-            holder.itemView.setOnLongClickListener(new OnLongClickListener() {
-                @Override
-                public boolean onLongClick(View v) {
-                    return mOnItemLongClickListener.onItemClick(mAdapter, holder, position);
-                }
-            });
-        }
-    }
 
     /**
      * 设置 宫格参数
@@ -667,49 +665,63 @@ public class SquareGridLayout extends ViewGroup {
     }
 
     private void applyAdapter(Adapter adapter) {
-        int newShowCount = getNeedShowCount(adapter.getItemCount());
+        removeAllViews();
+        mViewHolders.clear();
 
-        int[] gridParam = calculateGridParam(newShowCount, mShowStyle);
+        this.mAdapter = adapter;
+
+        int itemCount = mAdapter.getItemCount();
+
+        int[] gridParam = calculateGridParam(itemCount, mShowStyle);
         mRowCount = gridParam[0];
         mColumnCount = gridParam[1];
-        if (mAdapter == null) {
-            int i = 0;
-            while (i < newShowCount) {
-                ViewHolder holder = adapter.onCreateViewHolder(this, i);
-                if (holder == null) {
-                    return;
-                }
-                mViewHolders.add(holder);
-                addView(holder.itemView, generateDefaultLayoutParams());
-                callAdapterBindView(adapter, holder, i);
-                i++;
-            }
-        } else {
-            int oldShowCount = getNeedShowCount(mAdapter.getItemCount());
-            if (oldShowCount > newShowCount) {
-                int removeCount = oldShowCount - newShowCount;
-                removeViews(newShowCount, removeCount);
 
-                List<ViewHolder> tempHolders = new ArrayList<>();
-                for (int i = newShowCount; i < removeCount; i++) {
-                    tempHolders.add(mViewHolders.get(i));
-                }
-                mViewHolders.removeAll(tempHolders);
-
-            } else if (oldShowCount < newShowCount) {
-                for (int i = oldShowCount; i < newShowCount; i++) {
-                    ViewHolder holder = adapter.onCreateViewHolder(this, i);
-                    if (holder == null) {
-                        return;
-                    }
-                    mViewHolders.add(holder);
-                    addView(holder.itemView, generateDefaultLayoutParams());
-                    callAdapterBindView(adapter, holder, i);
-                }
+        for (int i = 0; i < itemCount; i++) {
+            ViewHolder holder = mAdapter.onCreateViewHolder(this, i);
+            if (holder == null) {
+                return;
             }
+            mViewHolders.add(holder);
+            addView(holder.itemView, generateDefaultLayoutParams());
+            notifyItemChanged(i);
         }
-        this.mAdapter = adapter;
-        //requestLayout();
+    }
+
+    public Adapter getAdapter() {
+        return mAdapter;
+    }
+
+    public void notifyDataSetChanged() {
+        if (mAdapter == null) {
+            return;
+        }
+        final int childCount = getChildCount();
+        for (int i = 0; i < childCount; i++) {
+            notifyItemChanged(i);
+        }
+    }
+
+    public void notifyItemChanged(int position) {
+        final ViewHolder holder = mViewHolders.get(position);
+        mAdapter.onBindViewHolder(holder, position);
+
+        holder.itemView.setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (mOnItemClickListener != null) {
+                    mOnItemClickListener.onItemClick(mAdapter, holder, position);
+                }
+            }
+        });
+        holder.itemView.setOnLongClickListener(new OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                if (mOnItemLongClickListener != null) {
+                    return mOnItemLongClickListener.onItemClick(mAdapter, holder, position);
+                }
+                return false;
+            }
+        });
     }
 
     /**
